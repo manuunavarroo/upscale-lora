@@ -14,10 +14,10 @@ const WEBAPP_ID = process.env.RUNNINGHUB_WEBAPP_ID!;
 // Helper functions remain the same
 const getScaleValue = (scale: string): string => {
   switch (scale) {
-    case 'x2': return "0.25";
-    case 'x4': return "0.5";
-    case 'x8': return "1.0";
-    default: return "0.5";
+    case 'x2': return "0.5";
+    case 'x4': return "1";
+    case 'x8': return "2";
+    default: return "1";
   }
 };
 
