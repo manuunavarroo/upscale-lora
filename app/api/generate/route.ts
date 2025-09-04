@@ -2,21 +2,22 @@
 
 import { NextResponse } from 'next/server';
 import { Redis } from '@upstash/redis';
-import { put } from '@vercel/blob';
 
 const redis = Redis.fromEnv();
 
-// Updated credentials from .env.local
+// API Endpoints and Credentials
+const UPLOAD_URL = "https://www.runninghub.ai/task/openapi/upload";
 const RUN_URL = process.env.RUNNINGHUB_RUN_URL!;
 const API_KEY = process.env.RUNNINGHUB_API_KEY!;
 const WEBAPP_ID = process.env.RUNNINGHUB_WEBAPP_ID!;
 
+// Helper functions remain the same
 const getScaleValue = (scale: string): string => {
   switch (scale) {
     case 'x2': return "0.25";
     case 'x4': return "0.5";
     case 'x8': return "1.0";
-    default: return "0.5"; // Default to x4
+    default: return "0.5";
   }
 };
 
@@ -37,7 +38,7 @@ export async function POST(request: Request) {
     const formData = await request.formData();
     const imageFile = formData.get('image') as File | null;
     const scale = formData.get('scale') as string;
-    const useLora = formData.get('useLora') as string; // Will be "true" or "false"
+    const useLora = formData.get('useLora') as string;
     const loraType = formData.get('loraType') as string;
     const seed = formData.get('seed') as string;
 
@@ -45,17 +46,32 @@ export async function POST(request: Request) {
       return NextResponse.json({ message: 'Image file is required.' }, { status: 400 });
     }
 
-    // 1. Upload the image to Vercel Blob storage
-    const blob = await put(imageFile.name, imageFile, {
-      access: 'public',
-    });
-    
-    // The 'pathname' is the unique filename on the blob storage
-    const uploadedImageFilename = blob.pathname;
+    // --- START: NEW TWO-STEP PROCESS ---
 
-    // 2. Prepare the nodeInfoList for the RunningHub API
+    // STEP 1: Upload the image to RunningHub's dedicated upload endpoint
+    const uploadFormData = new FormData();
+    uploadFormData.append('apiKey', API_KEY);
+    uploadFormData.append('file', imageFile);
+    uploadFormData.append('fileType', 'image');
+
+    const uploadResponse = await fetch(UPLOAD_URL, {
+      method: 'POST',
+      headers: { 'Host': 'www.runninghub.ai' },
+      body: uploadFormData,
+    });
+
+    const uploadResult = await uploadResponse.json();
+
+    if (uploadResult.code !== 0) {
+      throw new Error(`RunningHub Upload Error: ${uploadResult.msg}`);
+    }
+
+    // This is the special filename path returned by RunningHub
+    const uploadedImageFilename = uploadResult.data.fileName;
+
+    // STEP 2: Use the returned filename to run the workflow
     const nodeInfoList = [
-      // Image Node
+      // Image Node: Use the filename from the upload step
       { nodeId: '15', fieldName: 'image', fieldValue: uploadedImageFilename },
       // Scale Node
       { nodeId: '25', fieldName: 'default_value', fieldValue: getScaleValue(scale) },
@@ -64,37 +80,39 @@ export async function POST(request: Request) {
     ];
     
     const finalSeed = (seed === 'random' || !seed) 
-      ? Math.floor(Math.random() * 100000000000000).toString() // Use a large random number
+      ? Math.floor(Math.random() * 100000000000000).toString()
       : seed;
     // Seed Node
     nodeInfoList.push({ nodeId: '7', fieldName: 'seed', fieldValue: finalSeed });
 
-    // 3. Call the RunningHub API
     const payload = {
       webappId: WEBAPP_ID,
       apiKey: API_KEY,
       nodeInfoList: nodeInfoList,
     };
 
-    const response = await fetch(RUN_URL, {
+    const runResponse = await fetch(RUN_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Host': 'www.runninghub.ai' },
       body: JSON.stringify(payload),
     });
 
-    const result = await response.json();
-    if (result.code !== 0) {
-      throw new Error(`API Error: ${result.msg || 'Unknown error from RunningHub'}`);
+    // --- END: NEW TWO-STEP PROCESS ---
+
+    const runResult = await runResponse.json();
+    if (runResult.code !== 0) {
+      // The original error you received came from this call
+      const errorMessage = runResult.error?.details || runResult.msg || 'Unknown error from RunningHub';
+      throw new Error(`API Error: ${errorMessage}`);
     }
 
-    const taskId = result.data.taskId;
+    const taskId = runResult.data.taskId;
     
-    // 4. Store task details in Redis
     const taskData = { 
       taskId, 
       originalFilename: imageFile.name, 
       status: 'processing', 
-      createdAt: new Date().toISOString() // Use ISO string for consistency
+      createdAt: new Date().toISOString()
     };
     await redis.set(taskId, JSON.stringify(taskData));
 
