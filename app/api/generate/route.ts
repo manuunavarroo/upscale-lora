@@ -26,9 +26,9 @@ const getLoraStrength = (useLora: string, loraType: string): string => {
     return "0";
   }
   switch (loraType) {
-    case 'close-up': return "2.0";
-    case 'half-body': return "1.5";
-    case 'full-body': return "1.0";
+    case 'close-up': return "2.5";
+    case 'half-body': return "2";
+    case 'full-body': return "1.5";
     default: return "0";
   }
 };
