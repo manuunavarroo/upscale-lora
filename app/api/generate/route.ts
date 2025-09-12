@@ -84,7 +84,7 @@ export async function POST(request: Request) {
 
     const runResult = await runResponse.json();
     if (runResult.code !== 0) {
-      const errorMessage = runResult.error?.details || runResult.msg || 'Unknown error from RunningHub';
+      const errorMessage = runResult.error?.details || runResult.msg || 'Unknown error';
       throw new Error(`API Error: ${errorMessage}`);
     }
 
