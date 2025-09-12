@@ -6,7 +6,7 @@ import Image from 'next/image';
 
 interface HistoryItem {
   taskId: string;
-  originalFilename: string; // Changed from 'prompt'
+  originalFilename: string;
   status: 'processing' | 'complete';
   imageUrl?: string;
   createdAt: string;
@@ -15,9 +15,10 @@ interface HistoryItem {
 export default function Home() {
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
-  const [scale, setScale] = useState<string>('x4'); // New state for scaling
+  const [scale, setScale] = useState<string>('x4');
   const [useLora, setUseLora] = useState<boolean>(false);
-  const [loraType, setLoraType] = useState<string>('close-up'); // New state for LoRA type
+  // NEW: State for LoRA strength slider, replacing loraType
+  const [loraStrength, setLoraStrength] = useState<number>(1.5); 
   const [seedMode, setSeedMode] = useState<'random' | 'fixed'>('random');
   const [seedValue, setSeedValue] = useState<string>('');
   
@@ -25,7 +26,6 @@ export default function Home() {
   const [message, setMessage] = useState<string>('');
   const [history, setHistory] = useState<HistoryItem[]>([]);
 
-  // fetchHistory logic remains the same as your original code
   const fetchHistory = async () => {
     try {
       let historyResponse = await fetch('/api/history');
@@ -37,8 +37,6 @@ export default function Home() {
       const processingTasks = data.filter(item => item.status === 'processing');
 
       if (processingTasks.length > 0) {
-        // No need to trigger checks from the client, webhook handles it
-        // but this can serve as a fallback.
         for (const task of processingTasks) {
           await fetch('/api/check-status', {
             method: 'POST',
@@ -90,12 +88,12 @@ export default function Home() {
     formData.append('image', imageFile);
     formData.append('scale', scale);
     formData.append('useLora', String(useLora));
-    formData.append('loraType', loraType);
+    // UPDATED: Send loraStrength instead of loraType
+    formData.append('loraStrength', String(loraStrength)); 
     const finalSeed = seedMode === 'random' ? 'random' : seedValue;
     formData.append('seed', finalSeed);
 
     try {
-      // The browser will set the correct 'multipart/form-data' header
       const response = await fetch('/api/generate', {
         method: 'POST',
         body: formData,
@@ -105,7 +103,7 @@ export default function Home() {
       if (!response.ok) throw new Error(result.message || 'An error occurred');
       
       setMessage(`✅ Request sent! Your upscaled image will appear below.`);
-      setTimeout(fetchHistory, 1000); // Fetch history soon after submission
+      setTimeout(fetchHistory, 1000);
     } catch (error: unknown) {
       let errorMessage = 'An error occurred';
       if (error instanceof Error) { errorMessage = error.message; }
@@ -115,8 +113,16 @@ export default function Home() {
     }
   };
 
-  const processingCount = history.filter(item => item.status === 'processing').length;
-  const isQueueFull = processingCount >= 3;
+  // NEW: Helper function to get the text label for the current slider value
+  const getStrengthLabel = (value: number): string => {
+    if (value >= 1 && value <= 1.5) return 'Low';
+    if (value > 1.5 && value <= 2.5) return 'Normal';
+    if (value > 2.5 && value < 3) return 'High';
+    if (value === 3) return 'Very High';
+    return '';
+  };
+  
+  // REMOVED: processingCount and isQueueFull constants are no longer needed
 
   return (
     <main className="bg-slate-50 min-h-screen p-4 sm:p-8">
@@ -153,55 +159,54 @@ export default function Home() {
                 </button>
               </div>
 
+              {/* UPDATED: LoRA options now use a slider */}
               {useLora && (
                 <div className="mt-4 pl-2 border-l-2 border-blue-500">
-                    <label className="block text-sm font-medium text-gray-700 mb-2">LoRA Type</label>
-                    <div className="space-y-2">
-                        <label className="flex items-center">
-                            <input type="radio" name="loraType" value="close-up" checked={loraType === 'close-up'} onChange={(e) => setLoraType(e.target.value)} className="h-4 w-4 border-gray-300 text-blue-600"/>
-                            <span className="ml-2 text-sm text-gray-700">Close-up Portrait</span>
-                        </label>
-                        <label className="flex items-center">
-                            <input type="radio" name="loraType" value="half-body" checked={loraType === 'half-body'} onChange={(e) => setLoraType(e.target.value)} className="h-4 w-4 border-gray-300 text-blue-600"/>
-                            <span className="ml-2 text-sm text-gray-700">Half Body</span>
-                        </label>
-                        <label className="flex items-center">
-                            <input type="radio" name="loraType" value="full-body" checked={loraType === 'full-body'} onChange={(e) => setLoraType(e.target.value)} className="h-4 w-4 border-gray-300 text-blue-600"/>
-                            <span className="ml-2 text-sm text-gray-700">Full Body</span>
-                        </label>
+                    <label htmlFor="loraStrength" className="block text-sm font-medium text-gray-700 mb-2">
+                        LoRA Strength: <span className="font-bold">{loraStrength.toFixed(1)}</span>
+                    </label>
+                    <input
+                        id="loraStrength"
+                        type="range"
+                        min="1"
+                        max="3"
+                        step="0.1"
+                        value={loraStrength}
+                        onChange={(e) => setLoraStrength(parseFloat(e.target.value))}
+                        className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                    />
+                    <div className="text-center text-sm text-gray-600 mt-1 font-medium">
+                        {getStrengthLabel(loraStrength)}
                     </div>
                 </div>
               )}
 
               <div className="mt-4">
-                 <label className="block text-sm font-medium text-gray-700 mb-2">Seed</label>
-                 <div className="flex items-center space-x-4">
-                   <label className="flex items-center">
-                     <input type="radio" name="seedMode" value="random" checked={seedMode === 'random'} onChange={() => setSeedMode('random')} className="h-4 w-4 border-gray-300 text-blue-600 focus:ring-blue-500"/>
-                     <span className="ml-2 text-sm text-gray-700">Randomized</span>
-                   </label>
-                   <label className="flex items-center">
-                     <input type="radio" name="seedMode" value="fixed" checked={seedMode === 'fixed'} onChange={() => setSeedMode('fixed')} className="h-4 w-4 border-gray-300 text-blue-600 focus:ring-blue-500"/>
-                     <span className="ml-2 text-sm text-gray-700">Fixed</span>
-                   </label>
-                 </div>
-                 {seedMode === 'fixed' && (
-                   <input type="number" placeholder="Enter a seed number" value={seedValue} onChange={(e) => setSeedValue(e.target.value)} className="mt-2 w-full p-2 border border-gray-300 rounded-md text-black" required/>
-                 )}
+               <label className="block text-sm font-medium text-gray-700 mb-2">Seed</label>
+               <div className="flex items-center space-x-4">
+                 <label className="flex items-center">
+                   <input type="radio" name="seedMode" value="random" checked={seedMode === 'random'} onChange={() => setSeedMode('random')} className="h-4 w-4 border-gray-300 text-blue-600 focus:ring-blue-500"/>
+                   <span className="ml-2 text-sm text-gray-700">Randomized</span>
+                 </label>
+                 <label className="flex items-center">
+                   <input type="radio" name="seedMode" value="fixed" checked={seedMode === 'fixed'} onChange={() => setSeedMode('fixed')} className="h-4 w-4 border-gray-300 text-blue-600 focus:ring-blue-500"/>
+                   <span className="ml-2 text-sm text-gray-700">Fixed</span>
+                 </label>
                </div>
+               {seedMode === 'fixed' && (
+                 <input type="number" placeholder="Enter a seed number" value={seedValue} onChange={(e) => setSeedValue(e.target.value)} className="mt-2 w-full p-2 border border-gray-300 rounded-md text-black" required/>
+               )}
+              </div>
             </div>
             
-            <button type="submit" disabled={loading || isQueueFull} className="w-full bg-blue-600 text-white font-bold py-2 px-4 rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed">
+            {/* UPDATED: Button is only disabled during loading */}
+            <button type="submit" disabled={loading} className="w-full bg-blue-600 text-white font-bold py-2 px-4 rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed">
               {loading ? 'Processing...' : 'Upscale Image'}
             </button>
           </form>
           
-          {isQueueFull && (
-            <div className="mt-4 p-3 rounded-md text-sm bg-amber-100 text-amber-800 text-center">
-              Queue is full (3 images processing). Please wait.
-            </div>
-          )}
-
+          {/* REMOVED: The "Queue is full" message block */}
+          
           {message && <div className={`mt-4 p-3 rounded-md text-sm ${message.startsWith('❌') ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'}`}>{message}</div>}
         </div>
         
@@ -217,8 +222,8 @@ export default function Home() {
                     <Image 
                       src={item.imageUrl} 
                       alt={item.originalFilename} 
-                      width={1080} // Default display width
-                      height={1080} // Default display height
+                      width={1080}
+                      height={1080}
                       className="rounded-md w-full h-auto" 
                     />
                   ) : (
