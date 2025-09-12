@@ -11,7 +11,7 @@ const RUN_URL = process.env.RUNNINGHUB_RUN_URL!;
 const API_KEY = process.env.RUNNINGHUB_API_KEY!;
 const WEBAPP_ID = process.env.RUNNINGHUB_WEBAPP_ID!;
 
-// Helper functions remain the same
+// Helper function for scale value
 const getScaleValue = (scale: string): string => {
   switch (scale) {
     case 'x2': return "0.5";
@@ -21,17 +21,7 @@ const getScaleValue = (scale: string): string => {
   }
 };
 
-const getLoraStrength = (useLora: string, loraType: string): string => {
-  if (useLora !== 'true') {
-    return "0";
-  }
-  switch (loraType) {
-    case 'close-up': return "2.5";
-    case 'half-body': return "2";
-    case 'full-body': return "1.5";
-    default: return "0";
-  }
-};
+// REMOVED: getLoraStrength function is no longer needed.
 
 export async function POST(request: Request) {
   try {
@@ -39,16 +29,15 @@ export async function POST(request: Request) {
     const imageFile = formData.get('image') as File | null;
     const scale = formData.get('scale') as string;
     const useLora = formData.get('useLora') as string;
-    const loraType = formData.get('loraType') as string;
+    // UPDATED: Receive loraStrength from the form data
+    const loraStrength = formData.get('loraStrength') as string;
     const seed = formData.get('seed') as string;
 
     if (!imageFile) {
       return NextResponse.json({ message: 'Image file is required.' }, { status: 400 });
     }
 
-    // --- START: NEW TWO-STEP PROCESS ---
-
-    // STEP 1: Upload the image to RunningHub's dedicated upload endpoint
+    // STEP 1: Upload the image to RunningHub
     const uploadFormData = new FormData();
     uploadFormData.append('apiKey', API_KEY);
     uploadFormData.append('file', imageFile);
@@ -66,23 +55,19 @@ export async function POST(request: Request) {
       throw new Error(`RunningHub Upload Error: ${uploadResult.msg}`);
     }
 
-    // This is the special filename path returned by RunningHub
     const uploadedImageFilename = uploadResult.data.fileName;
 
     // STEP 2: Use the returned filename to run the workflow
     const nodeInfoList = [
-      // Image Node: Use the filename from the upload step
       { nodeId: '15', fieldName: 'image', fieldValue: uploadedImageFilename },
-      // Scale Node
       { nodeId: '25', fieldName: 'default_value', fieldValue: getScaleValue(scale) },
-      // LoRA Strength Node
-      { nodeId: '22', fieldName: 'strength_model', fieldValue: getLoraStrength(useLora, loraType) },
+      // UPDATED: Use the loraStrength value directly if useLora is true
+      { nodeId: '22', fieldName: 'strength_model', fieldValue: useLora === 'true' ? loraStrength : "0" },
     ];
     
     const finalSeed = (seed === 'random' || !seed) 
       ? Math.floor(Math.random() * 100000000000000).toString()
       : seed;
-    // Seed Node
     nodeInfoList.push({ nodeId: '7', fieldName: 'seed', fieldValue: finalSeed });
 
     const payload = {
@@ -97,11 +82,8 @@ export async function POST(request: Request) {
       body: JSON.stringify(payload),
     });
 
-    // --- END: NEW TWO-STEP PROCESS ---
-
     const runResult = await runResponse.json();
     if (runResult.code !== 0) {
-      // The original error you received came from this call
       const errorMessage = runResult.error?.details || runResult.msg || 'Unknown error from RunningHub';
       throw new Error(`API Error: ${errorMessage}`);
     }
